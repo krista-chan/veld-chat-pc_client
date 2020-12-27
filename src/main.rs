@@ -76,9 +76,7 @@ impl Application for Hello {
     }
 }
 
-pub async fn get_the_page(
-) -> std::result::Result<std::collections::HashMap<String, String>, Box<dyn std::error::Error>> {
+pub async fn get_the_page() -> std::result::Result<std::collections::HashMap<String, String>, Box<dyn std::error::Error>> {
     let res = get("https://httpbin.org/ip")?.json::<std::collections::HashMap<String, String>>()?;
-    println!("{:?}", res);
     Ok(res)
 }
