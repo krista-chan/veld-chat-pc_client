@@ -1,7 +1,7 @@
 use iced::{
-    button, executor, scrollable, text_input, window, Align::Center, Application, Button, Column,
-    Command, Container, Element, HorizontalAlignment, Length, Scrollable, Settings, Text,
-    TextInput,
+    button, executor, scrollable, text_input, window, Align::Center, Application, Column,
+    Command, Container, Element, HorizontalAlignment, Length, Scrollable, 
+    Settings, Text, TextInput,
 };
 use reqwest::blocking::get;
 
@@ -9,7 +9,7 @@ pub fn main() -> iced::Result {
     let mut settings: Settings<()> = Settings::default();
     println!("{:?}", settings);
     settings.window = window::Settings {
-        size: (800, 600),
+        transparent: true,
         ..Default::default()
     };
     MainView::run(settings)
@@ -51,10 +51,9 @@ struct ScrollableStates {
 pub enum Msgs {
     CloseWindow,
     LoadingMessage,
-    MaximiseWindow,
-    MinimiseWindow,
     LoadedMessage(String),
     SendMessage(String),
+    SendStage(String),
 }
 
 impl Application for MainView {
@@ -80,8 +79,6 @@ impl Application for MainView {
             Msgs::CloseWindow => {
                 std::process::exit(0);
             }
-            Msgs::MaximiseWindow => Command::none(),
-            Msgs::MinimiseWindow => Command::none(),
             Msgs::LoadedMessage(h) => {
                 self.messages.push(h);
                 println!("{:?}", self.messages);
@@ -94,8 +91,20 @@ impl Application for MainView {
                 )));
                 Command::none()
             }
+            Msgs::SendStage(val) => {
+                if val.is_empty() || val.len() == 0 {
+                    return Command::none();
+                } else {
+                    self.text_values.message_send_value = val.clone();
+                    Command::none()
+                }
+            }
             Msgs::SendMessage(val) => {
-                self.text_values.message_send_value = val;
+                if val.is_empty() || val.len() == 0 {
+                    return Command::none();
+                }
+                self.update(Msgs::LoadedMessage(val.trim().to_string().clone()));
+                self.text_values.message_send_value.clear();
                 Command::none()
             }
         }
@@ -106,45 +115,61 @@ impl Application for MainView {
             .padding(20)
             .align_items(Center)
             .width(Length::Fill)
+            .height(Length::FillPortion(1))
             .push(
-                Text::new("Here is some text lmao")
+                Text::new("VELD'S CHAT")
                     .width(Length::Fill)
                     .horizontal_alignment(HorizontalAlignment::Center)
                     .size(100),
-            )
-            .push(
-                Button::new(
-                    &mut self.btn_states.append_btn_state,
-                    Text::new("Append le h"),
-                )
-                .on_press(Msgs::LoadingMessage),
             )
             .into();
         let messages: Element<_> = self
             .messages
             .iter_mut()
             .enumerate()
-            .fold(Column::new(), |column, (_, task)| {
-                column.push(Text::new(format!("{:?}", task)))
-            })
+            .fold(
+                Column::new().width(Length::Fill)
+                    .padding(20)
+                    .spacing(20),
+                    |column, (_, new_message)| {
+                        column.push(
+                            Text::new(format!("{}", new_message))
+                                .size(35)
+                                .horizontal_alignment(HorizontalAlignment::Left),
+                        )
+                    },
+            )
             .into();
+
         let inputs: Element<_> = TextInput::new(
             &mut self.text_states.message_send_state,
             "Send a message",
             &self.text_values.message_send_value,
-            Msgs::SendMessage,
+            Msgs::SendStage,
         )
+        .on_submit(Msgs::SendMessage(
+            self.text_values.message_send_value.clone(),
+        ))
+        .size(30)
+        .width(Length::Fill)
+        .padding(35)
         .into();
+
+        let msg_scroll: Element<_> = Scrollable::new(&mut self.scroll_states.main_scrollable_state)
+            .push(messages)
+            .width(Length::Fill)
+            .height(Length::FillPortion(4))
+            .max_height(100)
+            .into();
+
         let content = Column::new()
             .align_items(Center)
             .spacing(20)
             .push(main_body)
-            .push(messages)
+            .push(msg_scroll)
             .push(inputs);
-        let container: Element<_> = Container::new(content).into();
-        Scrollable::new(&mut self.scroll_states.main_scrollable_state)
-            .push(container)
-            .into()
+
+        Container::new(content).into()
     }
 }
 
