@@ -1,18 +1,23 @@
+extern crate json;
+extern crate tungstenite;
+extern crate url;
+
 use iced::{
-    button, executor, scrollable, text_input, window, Align::Center, Application, Column,
-    Command, Container, Element, HorizontalAlignment, Length, Scrollable, 
-    Settings, Text, TextInput,
+    button, executor, scrollable, text_input, window, Align::Center, Application, Column, Command,
+    Container, Element, HorizontalAlignment, Length, Scrollable, Settings, Text, TextInput,
 };
-use reqwest::blocking::get;
+use tungstenite::*;
 
 pub fn main() -> iced::Result {
+    std::thread::spawn(move || {
+        connect();
+    });
     let mut settings: Settings<()> = Settings::default();
-    println!("{:?}", settings);
     settings.window = window::Settings {
         transparent: true,
         ..Default::default()
     };
-    MainView::run(settings)
+    MainView::run(Settings::default())
 }
 
 #[derive(Clone, Debug, Default)]
@@ -84,13 +89,7 @@ impl Application for MainView {
                 println!("{:?}", self.messages);
                 Command::none()
             }
-            Msgs::LoadingMessage => {
-                self.update(Msgs::LoadedMessage(format!(
-                    "{:?}",
-                    get_the_page().unwrap()
-                )));
-                Command::none()
-            }
+            Msgs::LoadingMessage => Command::none(),
             Msgs::SendStage(val) => {
                 if val.is_empty() || val.len() == 0 {
                     return Command::none();
@@ -101,8 +100,10 @@ impl Application for MainView {
             }
             Msgs::SendMessage(val) => {
                 if val.is_empty() || val.len() == 0 {
+                    println!("Bad value");
                     return Command::none();
                 }
+                println!("Good value");
                 self.update(Msgs::LoadedMessage(val.trim().to_string().clone()));
                 self.text_values.message_send_value.clear();
                 Command::none()
@@ -128,16 +129,14 @@ impl Application for MainView {
             .iter_mut()
             .enumerate()
             .fold(
-                Column::new().width(Length::Fill)
-                    .padding(20)
-                    .spacing(20),
-                    |column, (_, new_message)| {
-                        column.push(
-                            Text::new(format!("{}", new_message))
-                                .size(35)
-                                .horizontal_alignment(HorizontalAlignment::Left),
-                        )
-                    },
+                Column::new().width(Length::Fill).padding(20).spacing(20),
+                |column, (_, new_message)| {
+                    column.push(
+                        Text::new(format!("{}", new_message))
+                            .size(35)
+                            .horizontal_alignment(HorizontalAlignment::Left),
+                    )
+                },
             )
             .into();
 
@@ -173,8 +172,15 @@ impl Application for MainView {
     }
 }
 
-pub fn get_the_page(
-) -> std::result::Result<std::collections::HashMap<String, String>, Box<dyn std::error::Error>> {
-    let res = get("https://httpbin.org/ip")?.json::<std::collections::HashMap<String, String>>()?;
-    Ok(res)
+fn connect() {
+    let (mut socket, res) = client::connect(url::Url::parse("wss://api.veld.chat").unwrap())
+        .expect("Can't connect to server");
+    let login_payload = Message::Binary("{\"t\": 0, \"d\": {\"token\":null}}".into());
+    println!("{}", login_payload);
+    socket.write_message(login_payload).unwrap();
+    println!("Connected with http status {}", res.status());
+    loop {
+        let msg = socket.read_message().expect("Could not read message");
+        println!("{}", msg);
+    }
 }
