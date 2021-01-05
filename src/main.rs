@@ -1,4 +1,6 @@
 extern crate json;
+extern crate reqwest;
+extern crate tokio;
 extern crate tungstenite;
 extern crate url;
 
@@ -8,10 +10,11 @@ use iced::{
 };
 use tungstenite::*;
 
-pub fn main() -> iced::Result {
-    std::thread::spawn(move || {
-        connect();
-    });
+#[tokio::main]
+pub async fn main() -> iced::Result {
+    let mut con = Connection::new();
+    con.connect().await;
+    con.send_message("This is a test".to_string()).await;
     let mut settings: Settings<()> = Settings::default();
     settings.window = window::Settings {
         transparent: true,
@@ -55,10 +58,19 @@ struct ScrollableStates {
 #[derive(Debug, Clone)]
 pub enum Msgs {
     CloseWindow,
-    LoadingMessage,
     LoadedMessage(String),
     SendMessage(String),
     SendStage(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct Connection where Connection: 'static {
+    token: String,
+}
+
+pub enum Handlers {
+    SetToken(String),
+    Send(String),
 }
 
 impl Application for MainView {
@@ -86,10 +98,8 @@ impl Application for MainView {
             }
             Msgs::LoadedMessage(h) => {
                 self.messages.push(h);
-                println!("{:?}", self.messages);
                 Command::none()
             }
-            Msgs::LoadingMessage => Command::none(),
             Msgs::SendStage(val) => {
                 if val.is_empty() || val.len() == 0 {
                     return Command::none();
@@ -100,10 +110,8 @@ impl Application for MainView {
             }
             Msgs::SendMessage(val) => {
                 if val.is_empty() || val.len() == 0 {
-                    println!("Bad value");
                     return Command::none();
                 }
-                println!("Good value");
                 self.update(Msgs::LoadedMessage(val.trim().to_string().clone()));
                 self.text_values.message_send_value.clear();
                 Command::none()
@@ -172,15 +180,87 @@ impl Application for MainView {
     }
 }
 
-fn connect() {
-    let (mut socket, res) = client::connect(url::Url::parse("wss://api.veld.chat").unwrap())
-        .expect("Can't connect to server");
-    let login_payload = Message::Binary("{\"t\": 0, \"d\": {\"token\":null}}".into());
-    println!("{}", login_payload);
-    socket.write_message(login_payload).unwrap();
-    println!("Connected with http status {}", res.status());
-    loop {
-        let msg = socket.read_message().expect("Could not read message");
-        println!("{}", msg);
+pub async fn heartbeat(
+    socket: &mut tungstenite::WebSocket<
+        tungstenite::stream::Stream<
+            std::net::TcpStream,
+            native_tls::TlsStream<std::net::TcpStream>,
+        >,
+    >,
+) {
+    socket.write_message(Message::Binary("{\"t\": 1000, \"d\":null}".into())).unwrap();
+}
+
+impl Connection {
+    pub fn new() -> Self {
+        Connection {
+            token: String::new(),
+        }
+    }
+
+    pub async fn handle(&mut self, msg: Handlers) {
+        match msg {
+            Handlers::Send(content) => {
+                self.send_message(content).await;
+            }
+            Handlers::SetToken(token) => {
+                self.token = token;
+            }
+        }
+    }
+
+    pub async fn connect(
+        &mut self,
+    ) /* -> (
+        &tungstenite::WebSocket<
+            tungstenite::stream::Stream<
+                std::net::TcpStream,
+                native_tls::TlsStream<std::net::TcpStream>,
+            >,
+        >,
+        http::Response<()>,
+    )*/ {
+        let (mut socket, _res) = client::connect(url::Url::parse("wss://api.veld.chat").unwrap())
+            .expect("Unable to build client");
+
+        let mut login_payload = Message::Binary("{\"t\": 0, \"d\": {\"token\":null}}".into());
+        socket.write_message(login_payload).unwrap();
+        let obj = socket.read_message().unwrap();
+        let token = json::parse(obj.to_text().unwrap())
+            .unwrap()
+            .remove("d")
+            .remove("token");
+        self.token = format!("{}", token);
+        login_payload =
+            Message::Binary(format!("{{\"t\": 0, \"d\": {{\"token\":\"{}\"}}}}", token).into());
+        socket
+            .write_message(login_payload)
+            .expect("Unable to login");
+        println!("{}", socket.read_message().unwrap());
+
+        tokio::spawn(async move {
+            loop {
+                heartbeat(&mut socket).await;
+                println!("{}", socket.read_message().expect("Unable to send socket message"));
+                tokio::time::sleep(std::time::Duration::from_micros(15000)).await;
+            }
+        });
+
+        // return (socket, res);
+    }
+
+    pub async fn send_message(&mut self, content: String) {
+        let token = format!("Bearer {}", &self.token);
+        let msg_payload = format!("{{\"content\": {:?}}}", content);
+        println!("{}", msg_payload);
+        let client = reqwest::blocking::Client::new();
+        let post = client
+            .post("https://api.veld.chat/channels/1/messages")
+            .header(tungstenite::http::header::AUTHORIZATION, token)
+            .header(tungstenite::http::header::CONTENT_TYPE, "application/json")
+            .body(msg_payload)
+            .send()
+            .expect("Couldn't post");
+        println!("{:?}", post)
     }
 }
