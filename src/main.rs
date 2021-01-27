@@ -186,11 +186,9 @@ impl Application for MainView {
 pub fn heartbeat(
     socket: &'static mut tungstenite::WebSocket<tungstenite::stream::Stream<std::net::TcpStream, native_tls::TlsStream<std::net::TcpStream>>>,
 ) {
-    std::thread::spawn(move || {
-        socket.write_message(Message::Binary("{\"t\": 1000, \"d\":null}".into())).unwrap();
-        println!("{}", socket.read_message().unwrap());
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    });
+    socket.write_message(Message::Binary("{\"t\": 1000, \"d\":null}".into())).unwrap();
+    println!("{}", socket.read_message().unwrap());
+    std::thread::sleep(std::time::Duration::from_millis(10));
 }
 
 impl Connection {
@@ -230,7 +228,7 @@ impl Connection {
 
         let cl_socket = Arc::clone(&socket);
 
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             let mut socket = cl_socket.lock().unwrap();
             println!("Thread A spawned");
             loop {
@@ -240,7 +238,7 @@ impl Connection {
 
         let cl_socket = Arc::clone(&socket);
 
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             let mut socket = cl_socket.lock().unwrap();
             println!("thread B spawned");
             loop {
